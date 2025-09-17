@@ -1,3 +1,4 @@
+import { FIELD_MAPPINGS } from "@/config/jira";
 import {
   BurndownData,
   CycleTimeData,
@@ -19,11 +20,12 @@ export const calculateVelocity = (issues: JiraIssue[]): VelocityData[] => {
   >();
 
   issues.forEach((issue) => {
-    const sprint = issue.fields.customfield_10020?.[0];
+    const sprintField = issue.fields[FIELD_MAPPINGS.sprint];
+    const sprint = Array.isArray(sprintField) ? sprintField[0] : sprintField;
     if (!sprint) return;
 
     const sprintKey = sprint.name;
-    const storyPoints = issue.fields.storyPoints || 0;
+    const storyPoints = issue.fields[FIELD_MAPPINGS.storyPoints] || 0;
     const isCompleted = ["Done", "Closed", "Resolved"].includes(
       issue.fields.status.name
     );
@@ -59,7 +61,7 @@ export const calculateBurndown = (
 
   const days = eachDayOfInterval({ start: startDate, end: endDate });
   const totalStoryPoints = sprintIssues.reduce(
-    (sum, issue) => sum + (issue.fields.storyPoints || 0),
+    (sum, issue) => sum + (issue.fields[FIELD_MAPPINGS.storyPoints] || 0),
     0
   );
 
@@ -69,7 +71,10 @@ export const calculateBurndown = (
         const resolutionDate = issue.fields.resolutiondate;
         return resolutionDate && parseISO(resolutionDate) <= day;
       })
-      .reduce((sum, issue) => sum + (issue.fields.storyPoints || 0), 0);
+      .reduce(
+        (sum, issue) => sum + (issue.fields[FIELD_MAPPINGS.storyPoints] || 0),
+        0
+      );
 
     const remaining = totalStoryPoints - completedByDay;
     const ideal =

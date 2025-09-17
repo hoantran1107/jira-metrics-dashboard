@@ -1,8 +1,29 @@
 import { Card, CardContent, CardHeader } from '@/components/ui/Card'
 import { MetricCard } from '@/components/ui/MetricCard'
+import { JIRA_CONFIG } from '@/config/jira'
+import { useCalculatedMetrics, useProjectDashboardData } from '@/hooks/useJiraData'
+import { calculateLeadTime } from '@/utils/metrics'
 import { Bug, CheckCircle, ShieldAlert, TrendingDown } from 'lucide-react'
 
 export default function QualityInsights() {
+  // Use real data from custom hooks
+  const { data: dashboardData, isLoading: dashboardLoading } = useProjectDashboardData(JIRA_CONFIG.defaultProjectKey)
+  const { data: metrics, isLoading: metricsLoading } = useCalculatedMetrics(JIRA_CONFIG.defaultProjectKey)
+
+  const isLoading = dashboardLoading || metricsLoading
+
+  // Calculate quality metrics
+  const bugMetrics = dashboardData?.bugMetrics
+  const bugRate = metrics?.bugRate || 0
+  const defectRate = metrics?.defectRate || 0
+  
+  // Calculate bug resolution time (average cycle time for bugs)
+  const bugResolutionTime = bugMetrics?.resolved.length > 0 ? 
+    Math.round(calculateLeadTime(bugMetrics.resolved)) : 0
+
+  // Calculate first time fix rate (bugs that weren't reopened)
+  const firstTimeFixRate = bugMetrics && bugMetrics.resolved.length > 0 ? 
+    Math.round(((bugMetrics.resolved.length - bugMetrics.reopened.length) / bugMetrics.resolved.length) * 100) : 0
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -19,35 +40,39 @@ export default function QualityInsights() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
           title="Bug Rate"
-          value={2.3}
-          change={-15}
-          trend="down"
+          value={Math.round(bugRate * 100) / 100}
+          change={bugRate < 5 ? -15 : bugRate > 10 ? 15 : 0}
+          trend={bugRate < 5 ? "down" : bugRate > 10 ? "up" : "stable"}
           format="percentage"
           icon={<Bug className="h-6 w-6" />}
+          loading={isLoading}
         />
         <MetricCard
           title="Defect Density"
-          value={1.2}
-          change={-8}
-          trend="down"
-          format="number"
+          value={Math.round(defectRate * 100) / 100}
+          change={defectRate < 2 ? -8 : defectRate > 5 ? 8 : 0}
+          trend={defectRate < 2 ? "down" : defectRate > 5 ? "up" : "stable"}
+          format="percentage"
           icon={<ShieldAlert className="h-6 w-6" />}
+          loading={isLoading}
         />
         <MetricCard
           title="Resolution Time"
-          value={4.8}
-          change={-12}
-          trend="down"
+          value={bugResolutionTime}
+          change={bugResolutionTime < 5 ? -12 : bugResolutionTime > 10 ? 12 : 0}
+          trend={bugResolutionTime < 5 ? "down" : bugResolutionTime > 10 ? "up" : "stable"}
           format="number"
           icon={<TrendingDown className="h-6 w-6" />}
+          loading={isLoading}
         />
         <MetricCard
           title="First Time Fix"
-          value={87}
-          change={5}
-          trend="up"
+          value={firstTimeFixRate}
+          change={firstTimeFixRate > 80 ? 5 : firstTimeFixRate < 60 ? -5 : 0}
+          trend={firstTimeFixRate > 80 ? "up" : firstTimeFixRate < 60 ? "down" : "stable"}
           format="percentage"
           icon={<CheckCircle className="h-6 w-6" />}
+          loading={isLoading}
         />
       </div>
 
@@ -64,34 +89,52 @@ export default function QualityInsights() {
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-600 dark:text-gray-400">New Bugs</span>
                 <div className="flex items-center space-x-2">
-                  <span className="text-sm font-medium text-red-600 dark:text-red-400">8</span>
+                  <span className="text-sm font-medium text-red-600 dark:text-red-400">
+                    {bugMetrics?.created.length || 0}
+                  </span>
                   <div className="w-16 bg-gray-200 dark:bg-gray-700 rounded-full h-1">
-                    <div className="bg-red-500 h-1 rounded-full" style={{ width: '40%' }}></div>
+                    <div className="bg-red-500 h-1 rounded-full" style={{ 
+                      width: `${Math.min(100, ((bugMetrics?.created.length || 0) / Math.max(1, (bugMetrics?.created.length || 0) + (bugMetrics?.resolved.length || 0))) * 100)}%` 
+                    }}></div>
                   </div>
                 </div>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-600 dark:text-gray-400">Fixed Bugs</span>
                 <div className="flex items-center space-x-2">
-                  <span className="text-sm font-medium text-green-600 dark:text-green-400">12</span>
+                  <span className="text-sm font-medium text-green-600 dark:text-green-400">
+                    {bugMetrics?.resolved.length || 0}
+                  </span>
                   <div className="w-16 bg-gray-200 dark:bg-gray-700 rounded-full h-1">
-                    <div className="bg-green-500 h-1 rounded-full" style={{ width: '60%' }}></div>
+                    <div className="bg-green-500 h-1 rounded-full" style={{ 
+                      width: `${Math.min(100, ((bugMetrics?.resolved.length || 0) / Math.max(1, (bugMetrics?.created.length || 0) + (bugMetrics?.resolved.length || 0))) * 100)}%` 
+                    }}></div>
                   </div>
                 </div>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-600 dark:text-gray-400">Reopened</span>
                 <div className="flex items-center space-x-2">
-                  <span className="text-sm font-medium text-yellow-600 dark:text-yellow-400">2</span>
+                  <span className="text-sm font-medium text-yellow-600 dark:text-yellow-400">
+                    {bugMetrics?.reopened.length || 0}
+                  </span>
                   <div className="w-16 bg-gray-200 dark:bg-gray-700 rounded-full h-1">
-                    <div className="bg-yellow-500 h-1 rounded-full" style={{ width: '10%' }}></div>
+                    <div className="bg-yellow-500 h-1 rounded-full" style={{ 
+                      width: `${Math.min(100, ((bugMetrics?.reopened.length || 0) / Math.max(1, bugMetrics?.resolved.length || 1)) * 100)}%` 
+                    }}></div>
                   </div>
                 </div>
               </div>
               <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
                 <div className="flex justify-between">
                   <span className="text-sm font-medium text-gray-900 dark:text-white">Net Change</span>
-                  <span className="text-sm font-medium text-green-600 dark:text-green-400">-2</span>
+                  <span className={`text-sm font-medium ${
+                    (bugMetrics?.resolved.length || 0) - (bugMetrics?.created.length || 0) > 0 
+                      ? 'text-green-600 dark:text-green-400' 
+                      : 'text-red-600 dark:text-red-400'
+                  }`}>
+                    {(bugMetrics?.resolved.length || 0) - (bugMetrics?.created.length || 0)}
+                  </span>
                 </div>
               </div>
             </div>

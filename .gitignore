@@ -39,3 +39,4 @@ playwright/.cache/
 # Build outputs
 build/
 public/build/
+.vercel

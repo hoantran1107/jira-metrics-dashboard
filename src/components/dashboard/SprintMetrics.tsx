@@ -2,34 +2,47 @@ import { BurndownChart } from '@/components/charts/BurndownChart'
 import { VelocityChart } from '@/components/charts/VelocityChart'
 import { Card, CardContent, CardHeader } from '@/components/ui/Card'
 import { MetricCard } from '@/components/ui/MetricCard'
+import { FIELD_MAPPINGS, JIRA_CONFIG } from '@/config/jira'
+import { useBurndownData, useCalculatedMetrics, useSprintData } from '@/hooks/useJiraData'
+import { format, parseISO } from 'date-fns'
 import { Calendar, Target, TrendingUp } from 'lucide-react'
 
 export default function SprintMetrics() {
-  // Mock data - in real app, this would come from API
-  const velocityData = [
-    { sprint: 'Sprint 1', planned: 40, completed: 38, date: '2024-01-01' },
-    { sprint: 'Sprint 2', planned: 42, completed: 42, date: '2024-01-15' },
-    { sprint: 'Sprint 3', planned: 45, completed: 40, date: '2024-01-29' },
-    { sprint: 'Sprint 4', planned: 38, completed: 35, date: '2024-02-12' },
-    { sprint: 'Sprint 5', planned: 44, completed: 46, date: '2024-02-26' },
-  ]
+  // Use real data from custom hooks
+  const { data: metrics, isLoading: metricsLoading } = useCalculatedMetrics(JIRA_CONFIG.defaultProjectKey)
+  const { activeSprints, sprints, isLoading: sprintLoading } = useSprintData(JIRA_CONFIG.defaultProjectKey)
+  
+  // Get current/most recent active sprint
+  const currentSprint = activeSprints.length > 0 ? activeSprints[0] : null
+  const { data: burndownData, sprint: sprintDetails, sprintIssues, isLoading: burndownLoading } = useBurndownData(currentSprint?.id)
 
-  const burndownData = [
-    { date: 'Day 1', remaining: 44, ideal: 44 },
-    { date: 'Day 2', remaining: 42, ideal: 41 },
-    { date: 'Day 3', remaining: 39, ideal: 38 },
-    { date: 'Day 4', remaining: 35, ideal: 35 },
-    { date: 'Day 5', remaining: 32, ideal: 32 },
-    { date: 'Day 6', remaining: 28, ideal: 29 },
-    { date: 'Day 7', remaining: 24, ideal: 26 },
-    { date: 'Day 8', remaining: 20, ideal: 23 },
-    { date: 'Day 9', remaining: 16, ideal: 20 },
-    { date: 'Day 10', remaining: 12, ideal: 17 },
-    { date: 'Day 11', remaining: 8, ideal: 14 },
-    { date: 'Day 12', remaining: 4, ideal: 11 },
-    { date: 'Day 13', remaining: 1, ideal: 8 },
-    { date: 'Day 14', remaining: 0, ideal: 0 },
-  ]
+  const isLoading = metricsLoading || sprintLoading || burndownLoading
+
+  // Calculate sprint progress
+  const calculateSprintProgress = () => {
+    if (!sprintIssues.length) return { stories: '0/0', storyPoints: '0/0', storyProgress: 0, pointsProgress: 0 }
+    
+    const totalStories = sprintIssues.length
+    const completedStories = sprintIssues.filter(issue => 
+      ['Done', 'Closed', 'Resolved'].includes(issue.fields.status.name)
+    ).length
+    
+    const totalPoints = sprintIssues.reduce((sum, issue) => 
+      sum + (issue.fields[FIELD_MAPPINGS.storyPoints] || 0), 0
+    )
+    const completedPoints = sprintIssues
+      .filter(issue => ['Done', 'Closed', 'Resolved'].includes(issue.fields.status.name))
+      .reduce((sum, issue) => sum + (issue.fields[FIELD_MAPPINGS.storyPoints] || 0), 0)
+    
+    return {
+      stories: `${completedStories}/${totalStories}`,
+      storyPoints: `${completedPoints}/${totalPoints}`,
+      storyProgress: totalStories > 0 ? Math.round((completedStories / totalStories) * 100) : 0,
+      pointsProgress: totalPoints > 0 ? Math.round((completedPoints / totalPoints) * 100) : 0
+    }
+  }
+
+  const sprintProgress = calculateSprintProgress()
 
   return (
     <div className="space-y-6">
@@ -47,24 +60,33 @@ export default function SprintMetrics() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <MetricCard
           title="Current Sprint"
-          value="Sprint 5"
+          value={currentSprint?.name || "No Active Sprint"}
           icon={<Calendar className="h-6 w-6" />}
+          loading={isLoading}
         />
         <MetricCard
           title="Sprint Goal Progress"
-          value={85}
+          value={sprintProgress.pointsProgress}
           format="percentage"
-          change={5}
-          trend="up"
+          change={sprintProgress.pointsProgress - sprintProgress.storyProgress}
+          trend={sprintProgress.pointsProgress > sprintProgress.storyProgress ? "up" : 
+                 sprintProgress.pointsProgress < sprintProgress.storyProgress ? "down" : "stable"}
           icon={<Target className="h-6 w-6" />}
+          loading={isLoading}
         />
         <MetricCard
           title="Team Velocity"
-          value={42}
-          change={8}
-          trend="up"
+          value={metrics?.avgVelocity || 0}
+          change={metrics && metrics.velocityData.length > 1 ? 
+            Math.round(((metrics.velocityData[metrics.velocityData.length - 1]?.completed || 0) - 
+                       (metrics.velocityData[metrics.velocityData.length - 2]?.completed || 0)) / 
+                       Math.max(1, metrics.velocityData[metrics.velocityData.length - 2]?.completed || 1) * 100) : 0}
+          trend={metrics && metrics.velocityData.length > 1 && 
+                 metrics.velocityData[metrics.velocityData.length - 1]?.completed > 
+                 metrics.velocityData[metrics.velocityData.length - 2]?.completed ? "up" : "stable"}
           format="number"
           icon={<TrendingUp className="h-6 w-6" />}
+          loading={isLoading}
         />
       </div>
 
@@ -82,7 +104,7 @@ export default function SprintMetrics() {
                 Sprint Goal
               </dt>
               <dd className="text-sm text-gray-900 dark:text-white">
-                Implement user authentication and authorization system
+                {currentSprint?.goal || 'No goal specified'}
               </dd>
             </div>
             <div>
@@ -90,7 +112,9 @@ export default function SprintMetrics() {
                 Duration
               </dt>
               <dd className="text-sm text-gray-900 dark:text-white">
-                Feb 26 - Mar 11 (14 days)
+                {currentSprint && currentSprint.startDate && currentSprint.endDate ? 
+                  `${format(parseISO(currentSprint.startDate), 'MMM dd')} - ${format(parseISO(currentSprint.endDate), 'MMM dd, yyyy')}` : 
+                  'Dates not specified'}
               </dd>
             </div>
             <div>
@@ -98,7 +122,7 @@ export default function SprintMetrics() {
                 Stories
               </dt>
               <dd className="text-sm text-gray-900 dark:text-white">
-                12 total, 8 completed, 3 in progress, 1 blocked
+                {sprintProgress.stories} stories
               </dd>
             </div>
             <div>
@@ -106,7 +130,7 @@ export default function SprintMetrics() {
                 Story Points
               </dt>
               <dd className="text-sm text-gray-900 dark:text-white">
-                44 committed, 38 completed
+                {sprintProgress.storyPoints} points
               </dd>
             </div>
           </CardContent>
@@ -125,11 +149,11 @@ export default function SprintMetrics() {
                   Completed
                 </span>
                 <span className="text-sm text-gray-900 dark:text-white">
-                  8/12 stories
+                  {sprintProgress.stories} stories
                 </span>
               </div>
               <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                <div className="bg-green-600 h-2 rounded-full" style={{ width: '67%' }}></div>
+                <div className="bg-green-600 h-2 rounded-full" style={{ width: `${sprintProgress.storyProgress}%` }}></div>
               </div>
               
               <div className="flex justify-between items-center">
@@ -137,11 +161,11 @@ export default function SprintMetrics() {
                   Story Points
                 </span>
                 <span className="text-sm text-gray-900 dark:text-white">
-                  38/44 points
+                  {sprintProgress.storyPoints} points
                 </span>
               </div>
               <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                <div className="bg-blue-600 h-2 rounded-full" style={{ width: '86%' }}></div>
+                <div className="bg-blue-600 h-2 rounded-full" style={{ width: `${sprintProgress.pointsProgress}%` }}></div>
               </div>
             </div>
           </CardContent>
@@ -150,8 +174,14 @@ export default function SprintMetrics() {
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <VelocityChart data={velocityData} />
-        <BurndownChart data={burndownData} />
+        <VelocityChart 
+          data={metrics?.velocityData || []} 
+          loading={isLoading} 
+        />
+        <BurndownChart 
+          data={burndownData || []} 
+          loading={isLoading} 
+        />
       </div>
     </div>
   )

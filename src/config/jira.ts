@@ -4,12 +4,19 @@ export const JIRA_CONFIG = {
   email: import.meta.env.VITE_JIRA_EMAIL || "",
   apiToken: import.meta.env.VITE_JIRA_API_TOKEN || "",
   defaultProjectKey: import.meta.env.VITE_DEFAULT_PROJECT_KEY || "",
+  storyPointsField:
+    import.meta.env.VITE_STORY_POINTS_FIELD || "customfield_10004",
+  sprintField: import.meta.env.VITE_SPRINT_FIELD || "customfield_10007",
+  epicLinkField: import.meta.env.VITE_EPIC_LINK_FIELD || "customfield_10014",
+  flaggedField: import.meta.env.VITE_FLAGGED_FIELD || "customfield_10021",
 } as const;
 
 export const API_ENDPOINTS = {
   search: "/rest/api/3/search",
+  issue: "/rest/api/3/issue",
   project: "/rest/api/3/project",
   user: "/rest/api/3/user",
+  myself: "/rest/api/3/myself",
   field: "/rest/api/3/field",
   sprint: "/rest/agile/1.0/sprint",
   board: "/rest/agile/1.0/board",
@@ -43,10 +50,10 @@ export const JQL_QUERIES = {
 } as const;
 
 export const FIELD_MAPPINGS = {
-  storyPoints: "customfield_10020",
-  sprint: "customfield_10020",
-  epicLink: "customfield_10014",
-  flagged: "customfield_10021",
+  storyPoints: JIRA_CONFIG.storyPointsField, // story points
+  sprint: JIRA_CONFIG.sprintField,
+  epicLink: JIRA_CONFIG.epicLinkField,
+  flagged: JIRA_CONFIG.flaggedField,
 } as const;
 
 // Rate limiting configuration

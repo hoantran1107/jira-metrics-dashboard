@@ -1,50 +1,16 @@
 import { Card, CardContent, CardHeader } from '@/components/ui/Card'
 import { MetricCard } from '@/components/ui/MetricCard'
+import { JIRA_CONFIG } from '@/config/jira'
+import { useCalculatedMetrics, useTeamMetrics } from '@/hooks/useJiraData'
 import { Clock, Target, TrendingUp, Users } from 'lucide-react'
 
 export default function TeamPerformance() {
-  const teamMembers = [
-    {
-      id: 1,
-      name: 'Sarah Johnson',
-      avatar: 'https://images.unsplash.com/photo-1494790108755-2616b25b5d7b?w=32&h=32&fit=crop&crop=face',
-      role: 'Frontend Developer',
-      completedIssues: 12,
-      avgCycleTime: 3.2,
-      velocity: 28,
-      efficiency: 85,
-    },
-    {
-      id: 2,
-      name: 'Michael Chen',
-      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=32&h=32&fit=crop&crop=face',
-      role: 'Backend Developer',
-      completedIssues: 15,
-      avgCycleTime: 4.1,
-      velocity: 32,
-      efficiency: 92,
-    },
-    {
-      id: 3,
-      name: 'Emily Rodriguez',
-      avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=32&h=32&fit=crop&crop=face',
-      role: 'Full Stack Developer',
-      completedIssues: 18,
-      avgCycleTime: 2.8,
-      velocity: 35,
-      efficiency: 88,
-    },
-    {
-      id: 4,
-      name: 'David Kim',
-      avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=32&h=32&fit=crop&crop=face',
-      role: 'QA Engineer',
-      completedIssues: 22,
-      avgCycleTime: 1.5,
-      velocity: 25,
-      efficiency: 78,
-    },
-  ]
+  // Use real data from custom hooks
+  const { data: teamData, isLoading: teamLoading } = useTeamMetrics(JIRA_CONFIG.defaultProjectKey)
+  const { data: metrics, isLoading: metricsLoading } = useCalculatedMetrics(JIRA_CONFIG.defaultProjectKey)
+  
+  const isLoading = teamLoading || metricsLoading
+  const teamMembers = teamData?.teamMembers || []
 
   return (
     <div className="space-y-6">
@@ -62,32 +28,42 @@ export default function TeamPerformance() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
           title="Team Size"
-          value={8}
+          value={teamData?.totalContributors || 0}
           icon={<Users className="h-6 w-6" />}
+          loading={isLoading}
         />
         <MetricCard
           title="Team Velocity"
-          value={158}
-          change={12}
-          trend="up"
+          value={metrics?.avgVelocity || 0}
+          change={metrics && metrics.velocityData.length > 1 ? 
+            Math.round(((metrics.velocityData[metrics.velocityData.length - 1]?.completed || 0) - 
+                       (metrics.velocityData[metrics.velocityData.length - 2]?.completed || 0)) / 
+                       Math.max(1, metrics.velocityData[metrics.velocityData.length - 2]?.completed || 1) * 100) : 0}
+          trend={metrics && metrics.velocityData.length > 1 && 
+                 metrics.velocityData[metrics.velocityData.length - 1]?.completed > 
+                 metrics.velocityData[metrics.velocityData.length - 2]?.completed ? "up" : "stable"}
           format="number"
           icon={<TrendingUp className="h-6 w-6" />}
+          loading={isLoading}
         />
         <MetricCard
           title="Sprint Completion"
-          value={94}
+          value={metrics?.completedThisPeriod && metrics?.totalIssues ? 
+            Math.round((metrics.completedThisPeriod / metrics.totalIssues) * 100) : 0}
           change={3}
           trend="up"
           format="percentage"
           icon={<Target className="h-6 w-6" />}
+          loading={isLoading}
         />
         <MetricCard
           title="Avg Cycle Time"
-          value={2.9}
-          change={-8}
-          trend="down"
+          value={metrics?.avgCycleTime || 0}
+          change={metrics?.avgCycleTime ? Math.round((7 - metrics.avgCycleTime) / 7 * 100) : 0}
+          trend={metrics && metrics.avgCycleTime < 7 ? "down" : "stable"}
           format="number"
           icon={<Clock className="h-6 w-6" />}
+          loading={isLoading}
         />
       </div>
 
@@ -121,21 +97,28 @@ export default function TeamPerformance() {
                 </tr>
               </thead>
               <tbody>
-                {teamMembers.map((member) => (
-                  <tr key={member.id} className="border-b border-gray-100 dark:border-gray-800">
+                {teamMembers.length > 0 ? teamMembers.map((member, index) => (
+                  <tr key={member.user.accountId} className="border-b border-gray-100 dark:border-gray-800">
                     <td className="py-4 px-4">
                       <div className="flex items-center space-x-3">
                         <img
-                          src={member.avatar}
-                          alt={member.name}
+                          src={member.user.avatarUrls['32x32'] || member.user.avatarUrls['24x24']}
+                          alt={member.user.displayName}
                           className="w-8 h-8 rounded-full"
+                          onError={(e) => {
+                            // Fallback to initials if image fails to load
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = 'none';
+                            const initials = member.user.displayName.split(' ').map(n => n[0]).join('').toUpperCase();
+                            target.parentElement!.innerHTML = `<div class="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-medium">${initials}</div>` + target.parentElement!.innerHTML.substring(target.outerHTML.length);
+                          }}
                         />
                         <div>
                           <p className="font-medium text-gray-900 dark:text-white">
-                            {member.name}
+                            {member.user.displayName}
                           </p>
                           <p className="text-sm text-gray-600 dark:text-gray-400">
-                            {member.role}
+                            {member.user.emailAddress || 'Team Member'}
                           </p>
                         </div>
                       </div>
@@ -144,26 +127,32 @@ export default function TeamPerformance() {
                       {member.completedIssues}
                     </td>
                     <td className="py-4 px-4 text-gray-900 dark:text-white">
-                      {member.avgCycleTime} days
+                      {Math.round(member.avgCycleTime * 10) / 10} days
                     </td>
                     <td className="py-4 px-4 text-gray-900 dark:text-white">
-                      {member.velocity}
+                      {member.storyPoints}
                     </td>
                     <td className="py-4 px-4">
                       <div className="flex items-center space-x-2">
                         <div className="w-16 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                           <div 
                             className="bg-blue-600 h-2 rounded-full" 
-                            style={{ width: `${member.efficiency}%` }}
+                            style={{ width: `${Math.min(100, Math.round((member.completedIssues / Math.max(1, member.totalIssues)) * 100))}%` }}
                           ></div>
                         </div>
                         <span className="text-sm text-gray-600 dark:text-gray-400">
-                          {member.efficiency}%
+                          {Math.min(100, Math.round((member.completedIssues / Math.max(1, member.totalIssues)) * 100))}%
                         </span>
                       </div>
                     </td>
                   </tr>
-                ))}
+                )) : (
+                  <tr>
+                    <td colSpan={5} className="py-8 px-4 text-center text-gray-500 dark:text-gray-400">
+                      {isLoading ? 'Loading team data...' : 'No team data available'}
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

@@ -54,15 +54,8 @@ export interface JiraIssue {
       id: string;
       name: string;
     }>;
-    customfield_10020?: Array<{
-      id: number;
-      name: string;
-      state: string;
-      startDate?: string;
-      endDate?: string;
-      completeDate?: string;
-      goal?: string;
-    }>;
+    // Sprint field - should be dynamic based on configuration
+    [key: string]: any;
   };
 }
 

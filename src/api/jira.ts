@@ -8,22 +8,24 @@ import {
   JiraUser,
 } from "@/types";
 import axios, { AxiosInstance, AxiosResponse } from "axios";
-
 class JiraAPI {
   private client: AxiosInstance;
   private requestQueue: Array<() => Promise<any>> = [];
   private isProcessingQueue = false;
 
   constructor() {
+    const basic = Buffer.from(
+      `${process.env.JIRA_EMAIL}:${process.env.JIRA_API_TOKEN}`
+    ).toString("base64");
     this.client = axios.create({
       baseURL: JIRA_CONFIG.baseUrl,
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
-      },
-      auth: {
-        username: JIRA_CONFIG.email,
-        password: JIRA_CONFIG.apiToken,
+        Authorization: "Basic " + basic,
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
       },
     });
 
@@ -141,7 +143,7 @@ class JiraAPI {
     fields: string[] = ["*all"]
   ): Promise<JiraIssue> {
     const response = await this.client.get<JiraIssue>(
-      `${API_ENDPOINTS.search.replace("/search", "")}/${issueKey}`,
+      `${API_ENDPOINTS.issue}/${issueKey}`,
       {
         params: {
           fields: fields.join(","),
@@ -174,9 +176,7 @@ class JiraAPI {
   }
 
   async getCurrentUser(): Promise<JiraUser> {
-    const response = await this.client.get<JiraUser>(
-      `${API_ENDPOINTS.user}/current`
-    );
+    const response = await this.client.get<JiraUser>(API_ENDPOINTS.myself);
     return response.data;
   }
 
@@ -217,6 +217,138 @@ class JiraAPI {
       console.error("Connection test failed:", error);
       return false;
     }
+  }
+
+  // Enhanced methods for real data collection
+  async getBoards(projectKeyOrId?: string): Promise<any[]> {
+    const params: any = {};
+    if (projectKeyOrId) {
+      params.projectKeyOrId = projectKeyOrId;
+    }
+
+    const response = await this.client.get<{ values: any[] }>(
+      API_ENDPOINTS.board,
+      { params }
+    );
+    return response.data.values;
+  }
+
+  async getBoardSprints(
+    boardId: number,
+    state?: "active" | "closed" | "future"
+  ): Promise<JiraSprint[]> {
+    const params: any = {};
+    if (state) {
+      params.state = state;
+    }
+
+    const response = await this.client.get<{ values: JiraSprint[] }>(
+      `${API_ENDPOINTS.board}/${boardId}/sprint`,
+      { params }
+    );
+    return response.data.values;
+  }
+
+  async getSprintData(sprintId: number): Promise<JiraSprint> {
+    const response = await this.client.get<JiraSprint>(
+      `${API_ENDPOINTS.sprint}/${sprintId}`
+    );
+    return response.data;
+  }
+
+  async getRecentCompletedIssues(
+    projectKey: string,
+    days: number = 30
+  ): Promise<JiraIssue[]> {
+    const jql = `project = "${projectKey}" AND status CHANGED TO ("Done", "Closed", "Resolved") DURING (-${days}d, now()) ORDER BY resolved DESC`;
+    const result = await this.searchIssues(jql, ["*all"], 0, 100);
+    return result.issues;
+  }
+
+  async getBugMetrics(
+    projectKey: string,
+    days: number = 30
+  ): Promise<{
+    created: JiraIssue[];
+    resolved: JiraIssue[];
+    reopened: JiraIssue[];
+  }> {
+    const [created, resolved, reopened] = await Promise.all([
+      this.searchIssues(
+        `project = "${projectKey}" AND issuetype = Bug AND created >= -${days}d ORDER BY created DESC`,
+        ["*all"],
+        0,
+        100
+      ),
+      this.searchIssues(
+        `project = "${projectKey}" AND issuetype = Bug AND resolved >= -${days}d ORDER BY resolved DESC`,
+        ["*all"],
+        0,
+        100
+      ),
+      this.searchIssues(
+        `project = "${projectKey}" AND issuetype = Bug AND status CHANGED FROM ("Done", "Closed", "Resolved") DURING (-${days}d, now()) ORDER BY updated DESC`,
+        ["*all"],
+        0,
+        100
+      ),
+    ]);
+
+    return {
+      created: created.issues,
+      resolved: resolved.issues,
+      reopened: reopened.issues,
+    };
+  }
+
+  async getActiveContributors(
+    projectKey: string,
+    days: number = 30
+  ): Promise<JiraUser[]> {
+    const result = await this.searchIssues(
+      `project = "${projectKey}" AND updated >= -${days}d`,
+      ["assignee", "reporter"],
+      0,
+      1000
+    );
+
+    const contributorIds = new Set<string>();
+    result.issues.forEach((issue) => {
+      if (issue.fields.assignee?.accountId) {
+        contributorIds.add(issue.fields.assignee.accountId);
+      }
+      if (issue.fields.reporter?.accountId) {
+        contributorIds.add(issue.fields.reporter.accountId);
+      }
+    });
+
+    const contributors = await Promise.all(
+      Array.from(contributorIds).map((accountId) =>
+        this.getUser(accountId).catch(() => null)
+      )
+    );
+
+    return contributors.filter((user) => user !== null) as JiraUser[];
+  }
+
+  async getProjectDashboardData(projectKey: string, days: number = 30) {
+    const [allIssues, completedIssues, bugMetrics, contributors] =
+      await Promise.all([
+        this.searchIssues(
+          `project = "${projectKey}" AND updated >= -${days}d ORDER BY updated DESC`
+        ),
+        this.getRecentCompletedIssues(projectKey, days),
+        this.getBugMetrics(projectKey, days),
+        this.getActiveContributors(projectKey, days),
+      ]);
+
+    return {
+      allIssues: allIssues.issues,
+      completedIssues,
+      bugMetrics,
+      contributors,
+      totalCount: allIssues.total,
+    };
   }
 }
 
